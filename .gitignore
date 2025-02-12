@@ -1,0 +1,9 @@
+# created by virtualenv automatically
+Lib/
+Scripts/
+data/
+*.exe
+*.pyc
+*.json
+*.log
+*.html

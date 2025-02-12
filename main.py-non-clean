@@ -1,0 +1,251 @@
+#!/usr/bin/env python3
+"""
+Ransomware Detector Main Script
+Author: Hany Andriyanto
+Version: 1.0.0
+"""
+
+import os
+import sys
+import time
+import signal
+import logging
+import argparse
+from datetime import datetime
+from typing import List, Dict, Any
+
+# Import modul sistem
+import psutil
+import numpy as np
+import pandas as pd
+from sklearn.ensemble import IsolationForest
+from sklearn.preprocessing import StandardScaler
+
+# Import dari core models
+from src.core.models.data_models import (
+    SystemMetrics,
+    FileActivity,
+    ProcessInfo,
+    DetectionResult
+)
+
+# Import komponen detector
+from src.collectors.system_collector import SystemMetricsCollector
+from src.collectors.file_collector import FileActivityCollector
+from src.collectors.process_collector import ProcessCollector
+from src.analyzers.isolation_forest import IsolationForestAnalyzer
+from src.storage.file_storage import FileStorage
+from src.detectors.ransomware_detector import RansomwareDetector
+from src.config.thresholds import SystemThresholds
+
+class RansomwareDetectorApp:
+    """Kelas utama aplikasi Ransomware Detector"""
+    
+    def __init__(self):
+        self.base_dir = os.path.abspath(os.path.dirname(__file__))
+        self.data_dir = os.path.join(self.base_dir, "data")
+        self.detector = None
+        self.storage = None
+        self.is_running = False
+        
+        # Setup signal handler untuk penanganan Ctrl+C
+        signal.signal(signal.SIGINT, self._handle_interrupt)
+    
+    def setup_logging(self) -> None:
+        """Setup sistem logging"""
+        log_dir = os.path.join(self.data_dir, "logs")
+        os.makedirs(log_dir, exist_ok=True)
+        
+        log_file = os.path.join(log_dir, f'detector_{datetime.now().strftime("%Y%m%d")}.log')
+        
+        logging.basicConfig(
+            level=logging.INFO,
+            format='%(asctime)s - %(levelname)s - %(message)s',
+            handlers=[
+                logging.FileHandler(log_file),
+                logging.StreamHandler(sys.stdout)
+            ]
+        )
+        
+        logging.info("Logging system initialized")
+        print(f"Log file: {log_file}")
+    
+    def init_components(self) -> None:
+        """Inisialisasi komponen-komponen detector"""
+        try:
+            # Inisialisasi storage
+            self.storage = FileStorage(base_path=self.data_dir)
+            logging.info(f"Storage initialized at {self.data_dir}")
+            
+            # Inisialisasi collectors
+            monitor_path = os.path.expanduser("~")  # Monitor home directory
+            system_collector = SystemMetricsCollector()
+            file_collector = FileActivityCollector(monitor_path)
+            process_collector = ProcessCollector()
+            
+            collectors = [system_collector, file_collector, process_collector]
+            logging.info("Collectors initialized")
+            
+            # Inisialisasi analyzer
+            analyzer = IsolationForestAnalyzer(contamination=0.1)
+            logging.info("Analyzer initialized")
+            
+            # Buat detector
+            self.detector = RansomwareDetector(collectors, analyzer, self.storage)
+            logging.info("Detector initialized")
+            
+        except Exception as e:
+            logging.error(f"Failed to initialize components: {str(e)}")
+            raise
+    
+    def _handle_interrupt(self, signum, frame):
+        """Handler untuk interrupt signal (Ctrl+C)"""
+        print("\nMenerima signal interrupt...")
+        self.is_running = False
+    
+    def print_status(self, result: DetectionResult) -> None:
+        """Menampilkan status deteksi dengan IO rate"""
+        os.system('cls' if os.name == 'nt' else 'clear')
+        print("\nRansomware Detector Status")
+        print("=" * 50)
+        print(f"Timestamp: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+        
+        print("\nMetrik Sistem:")
+        print(f"CPU Usage: {result.metrics.cpu_percent:.1f}%")
+        print(f"Memory Usage: {result.metrics.memory_percent:.1f}%")
+        
+        # Disk Total
+        print(f"Disk Read: {result.metrics.disk_read_bytes / (1024*1024):.2f} MB")
+        print(f"Disk Write: {result.metrics.disk_write_bytes / (1024*1024):.2f} MB")
+        
+        # Disk Rate
+        print(f"Disk Read Rate: {result.metrics.disk_read_rate / (1024*1024):.2f} MB/s")
+        print(f"Disk Write Rate: {result.metrics.disk_write_rate / (1024*1024):.2f} MB/s")
+        
+        if result.is_anomaly:
+            print("\n⚠️  PERINGATAN: Aktivitas Mencurigakan Terdeteksi!")
+            print(f"Score Anomali: {result.score:.2f}")
+            if result.suspicious_processes:
+                print("\nProses Mencurigakan:")
+                for proc in result.suspicious_processes[:5]:
+                    print(f"- {proc.name} (PID: {proc.pid})")
+        else:
+            print("\n✅ Status: Normal")
+        
+        print("\nPress Ctrl+C to stop")
+        
+        
+    def run(self, args: argparse.Namespace) -> None:
+        """
+        Menjalankan detector
+        
+        Args:
+            args: Argument dari command line
+        """
+        try:
+            print("\nInitializing Ransomware Detector...")
+            self.setup_logging()
+            self.init_components()
+            
+            print("\nStarting training mode...")
+            print(f"Training duration: {args.training_duration} seconds")
+            self.detector.train(duration_seconds=args.training_duration)
+            
+            print("\nStarting detection mode...")
+            print(f"Detection interval: {args.interval} seconds")
+            self.is_running = True
+            
+            while self.is_running:
+                try:
+                    result = self.detector.detect()
+                    self.print_status(result)
+                    time.sleep(args.interval)
+                    
+                except Exception as e:
+                    logging.error(f"Error during detection: {str(e)}")
+                    # Jika error, tunggu sebentar sebelum mencoba lagi
+                    time.sleep(1)
+                    continue
+            
+            print("\nShutting down gracefully...")
+            logging.info("Application stopped by user")
+            
+        except Exception as e:
+            logging.error(f"Critical error: {str(e)}")
+            raise
+        
+        finally:
+            # Cleanup jika diperlukan
+            logging.info("Cleanup completed")
+
+def parse_arguments() -> argparse.Namespace:
+    """Parse command line arguments"""
+    parser = argparse.ArgumentParser(
+        description="Ransomware Zero-Day Attack Detector",
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter
+    )
+    
+    parser.add_argument(
+        "-t", "--training-duration",
+        type=int,
+        default=300,
+        help="Durasi training dalam detik"
+    )
+    
+    parser.add_argument(
+        "-i", "--interval",
+        type=int,
+        default=5,
+        help="Interval deteksi dalam detik"
+    )
+    
+    parser.add_argument(
+        "--debug",
+        action="store_true",
+        help="Aktifkan mode debug"
+    )
+    
+    return parser.parse_args()
+
+def print_banner():
+    """Menampilkan banner aplikasi"""
+    banner = """
+    ╔══════════════════════════════════════════════╗
+    ║             RANSOMWARE DETECTOR              ║
+    ║        Zero-Day Attack Detection System      ║
+    ╚══════════════════════════════════════════════╝
+    Author: Hany Andriyanto
+    Version: 1.0.0
+    """
+    print(banner)
+
+def main():
+    """Fungsi utama aplikasi"""
+    print_banner()
+    
+    args = parse_arguments()
+    
+    # Adjust thresholds berdasarkan sistem
+    SystemThresholds.adjust_for_system()
+    
+    # Log system configuration
+    system_info = SystemThresholds.get_system_info()
+    logging.info(f"System configuration: {system_info}")
+    
+    
+    if args.debug:
+        logging.getLogger().setLevel(logging.DEBUG)
+    
+    app = RansomwareDetectorApp()
+    
+    try:
+        app.run(args)
+    except KeyboardInterrupt:
+        print("\nProgram dihentikan oleh user")
+    except Exception as e:
+        print(f"\nError: {str(e)}")
+        logging.exception("Unexpected error occurred")
+        sys.exit(1)
+
+if __name__ == "__main__":
+    main()
