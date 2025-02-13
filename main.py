@@ -445,14 +445,14 @@ def main():
         print(f"Status: {'Valid' if is_valid else 'Tidak Valid'}")
         print(f"Pesan: {message}")
         return
-    elif args.collect_only:
+    if args.collect_only:
             # Hanya collect metrik
             print("\nMemulai pengumpulan metrik...")
             app.setup_logging()
             app.init_components()
             app.detector.collect_metrics(args.training_duration)
             
-    elif args.train_from_metrics:
+    if args.train_from_metrics:
         # Training dari metrik yang ada
         metrics_path = args.metrics_path or os.path.join(app.data_dir, "metrics")
         if not os.path.exists(metrics_path):
@@ -462,9 +462,9 @@ def main():
         app.init_components()
         app.train_from_metrics(metrics_path)
         
-    else:
-        # Mode normal: run detector
-        app.run(args)
+    # else:
+    #     # Mode normal: run detector
+    #     app.run(args)
     
     # Cek apakah perlu cleanup
     if not args.no_cleanup and confirm_cleanup():

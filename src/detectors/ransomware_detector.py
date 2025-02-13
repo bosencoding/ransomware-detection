@@ -128,28 +128,41 @@ class RansomwareDetector:
         return base_score * adjustment_factor
     
     def _create_feature_vector(self, metrics: Dict[str, Any]) -> np.ndarray:
-        """Create feature vector dari data metrik dalam format JSON"""
+        """Create feature vector dari metrics"""
         try:
-            # Ekstrak fitur dari format JSON
-            system_metrics = metrics.get('system', {})
-            files_metrics = metrics.get('files', [])
-            processes_metrics = metrics.get('processes', [])
+            # Untuk SystemMetrics object, akses langsung atributnya
+            if hasattr(metrics['system'], 'cpu_percent'):
+                # Jika metrics['system'] adalah SystemMetrics object
+                system_metrics = metrics['system']
+                features = [
+                    float(system_metrics.cpu_percent),
+                    float(system_metrics.memory_percent),
+                    float(system_metrics.disk_read_bytes),
+                    float(system_metrics.disk_write_bytes),
+                    float(len(metrics.get('files', []))),
+                    float(len([p for p in metrics.get('processes', []) 
+                            if getattr(p, 'cpu_percent', 0) > SystemThresholds.HIGH_CPU_PROCESS_THRESHOLD]))
+                ]
+            else:
+                # Jika metrics['system'] adalah dictionary (dari JSON)
+                system_metrics = metrics['system']
+                features = [
+                    float(system_metrics.get('cpu_percent', 0)),
+                    float(system_metrics.get('memory_percent', 0)),
+                    float(system_metrics.get('disk_read_bytes', 0)),
+                    float(system_metrics.get('disk_write_bytes', 0)),
+                    float(len(metrics.get('files', []))),
+                    float(len([p for p in metrics.get('processes', []) 
+                            if float(p.get('cpu_percent', 0)) > SystemThresholds.HIGH_CPU_PROCESS_THRESHOLD]))
+                ]
 
-            features = [
-                float(system_metrics.get('cpu_percent', 0)),
-                float(system_metrics.get('memory_percent', 0)),
-                float(system_metrics.get('disk_read_bytes', 0)),
-                float(system_metrics.get('disk_write_bytes', 0)),
-                float(len(files_metrics)),  # Jumlah file yang dimonitor
-                float(len([p for p in processes_metrics 
-                        if float(p.get('cpu_percent', 0)) > SystemThresholds.HIGH_CPU_PROCESS_THRESHOLD]))
-            ]
-            
             self.logger.debug(f"Created feature vector: {features}")
             return np.array(features, dtype=np.float64).reshape(1, -1)
             
         except Exception as e:
             self.logger.error(f"Error creating feature vector: {str(e)}")
+            self.logger.error(f"Metrics type: {type(metrics)}")
+            self.logger.error(f"System metrics type: {type(metrics.get('system'))}")
             raise
     # def _create_feature_vector(self, metrics: Dict[str, Any]) -> np.ndarray:
     #     """
