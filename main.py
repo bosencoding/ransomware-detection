@@ -11,6 +11,7 @@ import time
 import signal
 import logging
 import argparse
+import json
 from datetime import datetime
 from typing import List, Dict, Any
 import stat
@@ -133,31 +134,96 @@ class RansomwareDetectorApp:
         
         logging.info("Logging system initialized")
         print(f"Log file: {log_file}")
-    
-    # def _collect_network_processes(self) -> List[ProcessInfo]:
-    #     """Collect processes dengan aktivitas network"""
-    #     network_processes = []
-    #     for proc in psutil.process_iter(['pid', 'name', 'cpu_percent', 'memory_percent']):
-    #         try:
-    #             proc_name = proc.name()
-    #             # Get network connections untuk proses ini
-    #             connections = proc.connections()
-    #             if connections:  # Jika ada koneksi aktif
-    #                 network_io = proc.io_counters()
-    #                 process_info = ProcessInfo(
-    #                     pid=proc.pid,
-    #                     name=proc_name,
-    #                     cpu_percent=proc.cpu_percent(),
-    #                     memory_percent=proc.memory_percent(),
-    #                     upload_rate=network_io.write_bytes / 1024,  # Convert to KB/s
-    #                     download_rate=network_io.read_bytes / 1024,
-    #                     is_whitelisted=SystemWhitelist.is_whitelisted_process(proc_name)
-    #                 )
-    #                 network_processes.append(process_info)
-    #         except (psutil.NoSuchProcess, psutil.AccessDenied):
-    #             continue
-    #     return network_processes
+        
+    def train_from_metrics(self, metrics_path: str) -> None:
+        """Training model dari data metrik JSON"""
+        try:
+            print(f"\nMemuat data metrik dari: {metrics_path}")
+            
+            # Kumpulkan semua file metrik
+            metric_files = []
+            for root, _, files in os.walk(metrics_path):
+                for file in files:
+                    if file.endswith('.json'):  # Ubah ke .json
+                        metric_files.append(os.path.join(root, file))
+            
+            if not metric_files:
+                print("Tidak ada file metrik JSON ditemukan!")
+                return
+                
+            print(f"Ditemukan {len(metric_files)} file metrik")
+            
+            # Kumpulkan semua data
+            all_metrics = []
+            for file in metric_files:
+                try:
+                    with open(file, 'r') as f:
+                        metrics = json.load(f)  # Load JSON
+                    if isinstance(metrics, dict):  # Single metric
+                        all_metrics.append(metrics)
+                    elif isinstance(metrics, list):  # List of metrics
+                        all_metrics.extend(metrics)
+                    print(f"Berhasil memuat: {file}")
+                except Exception as e:
+                    print(f"Gagal memuat {file}: {e}")
+                    continue
+            
+            if not all_metrics:
+                print("Tidak ada data metrik valid!")
+                return
+                
+            print(f"\nTotal data metrik: {len(all_metrics)}")
+            
+            # Convert ke feature vectors
+            training_data = []
+            for metric in all_metrics:
+                try:
+                    feature_vector = self.detector._create_feature_vector(metric)
+                    training_data.append(feature_vector[0])
+                except Exception as e:
+                    print(f"Gagal memproses metrik: {e}")
+                    continue
+            
+            if not training_data:
+                print("Tidak ada data training yang valid!")
+                return
 
+            # Convert ke numpy array
+            training_array = np.array(training_data)
+            print(f"Shape data training: {training_array.shape}")
+            
+            # Train model
+            print("\nMemulai training...")
+            self.detector.analyzer.train(training_array)
+            
+            # Save model
+            model_path = os.path.join(self.data_dir, "models", "model_latest.joblib")
+            self.detector.analyzer.save(model_path)
+            
+            print(f"\nTraining selesai! Model disimpan di: {model_path}")
+            
+            # Simpan rangkuman
+            summary = {
+                'timestamp': datetime.now().isoformat(),
+                'metrics_files': len(metric_files),
+                'total_samples': len(all_metrics),
+                'valid_samples': len(training_data),
+                'features_shape': training_array.shape,
+                'model_path': model_path
+            }
+            
+            summary_path = os.path.join(self.data_dir, "training", "training_summary.json")
+            with open(summary_path, 'w') as f:
+                json.dump(summary, f, indent=4)
+            print(f"Rangkuman training disimpan di: {summary_path}")
+            print("\nProses training selesai. Menutup aplikasi...")
+            sys.exit(0)  # Keluar dengan status sukses
+            
+        except Exception as e:
+            print(f"Error during training from metrics: {e}")
+            raise
+    
+ 
     def init_components(self) -> None:
         """Inisialisasi komponen-komponen detector"""
         try:
@@ -278,17 +344,37 @@ def parse_arguments() -> argparse.Namespace:
         formatter_class=argparse.ArgumentDefaultsHelpFormatter
     )
     
+     # Grup untuk mode operasi
+    mode_group = parser.add_mutually_exclusive_group()
+    mode_group.add_argument(
+        "--collect-only",
+        action="store_true",
+        help="Hanya mengumpulkan metrik tanpa training"
+    )
+    mode_group.add_argument(
+        "--train-from-metrics",
+        action="store_true",
+        help="Training dari data metrik yang sudah ada"
+    )
+    
+    # Argumen untuk path
+    parser.add_argument(
+        "--metrics-path",
+        type=str,
+        help="Path ke folder metrik untuk training"
+    )
+    parser.add_argument(
+        "--model-path",
+        type=str,
+        help="Path ke model untuk validasi atau output training"
+    )
+    
     parser.add_argument(
         "--validate-only",
         action="store_true",
         help="Hanya validasi model tanpa menjalankan detector"
     )
     
-    parser.add_argument(
-        "--model-path",
-        type=str,
-        help="Path ke model yang akan divalidasi"
-    )
     parser.add_argument(
         "-t", "--training-duration",
         type=int,
@@ -359,6 +445,26 @@ def main():
         print(f"Status: {'Valid' if is_valid else 'Tidak Valid'}")
         print(f"Pesan: {message}")
         return
+    elif args.collect_only:
+            # Hanya collect metrik
+            print("\nMemulai pengumpulan metrik...")
+            app.setup_logging()
+            app.init_components()
+            app.detector.collect_metrics(args.training_duration)
+            
+    elif args.train_from_metrics:
+        # Training dari metrik yang ada
+        metrics_path = args.metrics_path or os.path.join(app.data_dir, "metrics")
+        if not os.path.exists(metrics_path):
+            print(f"\nFolder metrik tidak ditemukan di: {metrics_path}")
+            return
+        app.setup_logging()
+        app.init_components()
+        app.train_from_metrics(metrics_path)
+        
+    else:
+        # Mode normal: run detector
+        app.run(args)
     
     # Cek apakah perlu cleanup
     if not args.no_cleanup and confirm_cleanup():

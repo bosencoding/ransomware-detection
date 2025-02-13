@@ -126,35 +126,59 @@ class RansomwareDetector:
             adjustment_factor *= 0.95
         
         return base_score * adjustment_factor
-
+    
     def _create_feature_vector(self, metrics: Dict[str, Any]) -> np.ndarray:
-        """
-        Membuat feature vector dari metrics.
-        
-        Args:
-            metrics: Dictionary berisi metrics dari collectors
-            
-        Returns:
-            numpy.ndarray: Feature vector untuk analisis dalam format 2D array
-        """
+        """Create feature vector dari data metrik dalam format JSON"""
         try:
+            # Ekstrak fitur dari format JSON
+            system_metrics = metrics.get('system', {})
+            files_metrics = metrics.get('files', [])
+            processes_metrics = metrics.get('processes', [])
+
             features = [
-                metrics['system'].cpu_percent,
-                metrics['system'].memory_percent,
-                metrics['system'].disk_read_bytes,
-                metrics['system'].disk_write_bytes,
-                len(metrics.get('files', [])),
-                len([p for p in metrics.get('processes', []) 
-                    if getattr(p, 'cpu_percent', 0) > SystemThresholds.HIGH_CPU_PROCESS_THRESHOLD])
+                float(system_metrics.get('cpu_percent', 0)),
+                float(system_metrics.get('memory_percent', 0)),
+                float(system_metrics.get('disk_read_bytes', 0)),
+                float(system_metrics.get('disk_write_bytes', 0)),
+                float(len(files_metrics)),  # Jumlah file yang dimonitor
+                float(len([p for p in processes_metrics 
+                        if float(p.get('cpu_percent', 0)) > SystemThresholds.HIGH_CPU_PROCESS_THRESHOLD]))
             ]
             
-            # Reshape ke 2D array (1 x n_features)
-            # return np.array(features).reshape(1, -1)
+            self.logger.debug(f"Created feature vector: {features}")
             return np.array(features, dtype=np.float64).reshape(1, -1)
-
+            
         except Exception as e:
             self.logger.error(f"Error creating feature vector: {str(e)}")
             raise
+    # def _create_feature_vector(self, metrics: Dict[str, Any]) -> np.ndarray:
+    #     """
+    #     Membuat feature vector dari metrics.
+        
+    #     Args:
+    #         metrics: Dictionary berisi metrics dari collectors
+            
+    #     Returns:
+    #         numpy.ndarray: Feature vector untuk analisis dalam format 2D array
+    #     """
+    #     try:
+    #         features = [
+    #             metrics['system'].cpu_percent,
+    #             metrics['system'].memory_percent,
+    #             metrics['system'].disk_read_bytes,
+    #             metrics['system'].disk_write_bytes,
+    #             len(metrics.get('files', [])),
+    #             len([p for p in metrics.get('processes', []) 
+    #                 if getattr(p, 'cpu_percent', 0) > SystemThresholds.HIGH_CPU_PROCESS_THRESHOLD])
+    #         ]
+            
+    #         # Reshape ke 2D array (1 x n_features)
+    #         # return np.array(features).reshape(1, -1)
+    #         return np.array(features, dtype=np.float64).reshape(1, -1)
+
+    #     except Exception as e:
+    #         self.logger.error(f"Error creating feature vector: {str(e)}")
+    #         raise
     
     def _collect_all_metrics(self) -> Dict[str, Any]:
         """
