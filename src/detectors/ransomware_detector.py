@@ -192,6 +192,7 @@ class RansomwareDetector:
             
         try:
             current_metrics = self._collect_all_metrics()
+            
             feature_vector = self._create_feature_vector(current_metrics)
             analysis_result = self.analyzer.analyze(feature_vector)
             
@@ -245,21 +246,46 @@ class RansomwareDetector:
         """Training detector"""
         try:
             training_data = []
+            metrics_collection = []
             start_time = datetime.now()
+            samples_collected = 0
             
             print(f"\nCollecting training data for {duration_seconds} seconds...")
             
             while (datetime.now() - start_time).total_seconds() < duration_seconds:
-                metrics = self._collect_all_metrics()
-                feature_vector = self._create_feature_vector(metrics)
-                training_data.append(feature_vector[0])  # Ambil array 1D
-                print(".", end="", flush=True)
-                time.sleep(1)
+                try:
+                    metrics = self._collect_all_metrics()
+                    metrics_collection.append(metrics) 
+                    feature_vector = self._create_feature_vector(metrics)
+                    training_data.append(feature_vector[0])  # Ambil array 1D
+                    self.storage.save_metrics(metrics)
+                    print(".", end="", flush=True)
+                    samples_collected += 1
+                    if samples_collected % 10 == 0:  # Update setiap 10 sampel
+                        elapsed_time = (datetime.now() - start_time).total_seconds()
+                        progress = (elapsed_time / duration_seconds) * 100
+                        print(f"\rProgress: {progress:.1f}% ({samples_collected} samples)", end="")
+                    
+                    
+                    time.sleep(1)
+                except Exception as e:
+                    self.logger.error(f"Error collecting sample: {str(e)}")
+                    continue
+            
+            print("\n\nPengumpulan data selesai.")
+            print(f"Total sampel terkumpul: {samples_collected}")
+            
+            # Simpan metrik mentah untuk analisis
+            metrics_path = os.path.join(self.data_dir, "training", f"metrics_{datetime.now().strftime('%Y%m%d_%H%M%S')}.joblib")
+            os.makedirs(os.path.dirname(metrics_path), exist_ok=True)
+            joblib.dump(metrics_collection, metrics_path)
+            print(f"Metrik mentah disimpan di: {metrics_path}")
             
             # Convert ke numpy array
             training_array = np.array(training_data)
             
-            print(f"\nTraining model with {len(training_data)} samples...")
+            print(f"\nMemulai training model dengan {len(training_data)} sampel...")
+            print(f"Shape data training: {training_array.shape}")
             self.analyzer.train(training_array)
             
             # Save model

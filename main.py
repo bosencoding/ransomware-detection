@@ -53,6 +53,9 @@ class RansomwareDetectorApp:
         self.storage = None
         self.is_running = False
         
+        # Pastikan direktori data ada
+        os.makedirs(self.data_dir, exist_ok=True)
+        
         # Setup signal handlers
         signal.signal(signal.SIGINT, self.handle_interrupt)
         signal.signal(signal.SIGTERM, self.handle_interrupt)
@@ -215,6 +218,11 @@ class RansomwareDetectorApp:
         
         # Score dan Status
         print(f"\n📈 Score Anomali: {result.score:.3f}")
+        
+        # Info file metrics yang disimpan
+        metrics_files = len(os.listdir(os.path.join(self.data_dir, "metrics")))
+        print(f"\nMetrics Tersimpan: {metrics_files} file")
+        
         if result.is_anomaly:
             print("\n⚠️  PERINGATAN: Aktivitas Mencurigakan Terdeteksi!")
             
