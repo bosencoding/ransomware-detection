@@ -20,9 +20,9 @@ class SystemThresholds:
     DISK_WRITE_NORMAL_MAX = 75.0     # Batas normal disk write
     
     # File operation thresholds
-    FILE_OPS_PER_SECOND = 200       # Operasi file per detik
+    FILE_OPS_PER_SECOND = 500       # Operasi file per detik
     FILE_CHANGE_THRESHOLD = 100      # Perubahan file per menit
-    FILE_OPS_NORMAL_MAX = 150       # Batas normal operasi file
+    FILE_OPS_NORMAL_MAX = 350       # Batas normal operasi file
     
     # Process thresholds
     HIGH_CPU_PROCESS_THRESHOLD = 85.0 # CPU tinggi per proses

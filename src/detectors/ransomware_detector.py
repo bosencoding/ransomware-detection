@@ -4,6 +4,8 @@ from datetime import datetime
 import numpy as np
 import logging
 import time
+import os
+import joblib
 
 from src.core.interfaces.collector import IMetricsCollector
 from src.core.interfaces.analyzer import IAnalyzer
@@ -21,13 +23,14 @@ class RansomwareDetector:
         self,
         collectors: List[IMetricsCollector],
         analyzer: IAnalyzer,
-        storage: IStorage
+        storage: IStorage,
+        data_dir: str = None
     ):
         self.collectors = collectors
         self.analyzer = analyzer
         self.storage = storage
         self.is_trained = False
-        
+        self.data_dir = data_dir or os.path.join(os.path.dirname(os.path.dirname(__file__)), "data")
         self.logger = logging.getLogger('detector')
         self.logger.setLevel(logging.INFO)
         self.last_alert_time = None
@@ -106,7 +109,7 @@ class RansomwareDetector:
         if browser_active:
             # Reduce sensitivity for browser activity
             adjustment_factor *= 0.7
-        
+
         # Check for system updates or maintenance
         system_maintenance = any(
             p.name.lower() in ['wuauclt.exe', 'trustedinstaller.exe'] 
@@ -119,8 +122,8 @@ class RansomwareDetector:
         
         # Adjust based on time of day (reduce sensitivity during working hours)
         current_hour = datetime.now().hour
-        if 8 <= current_hour <= 18:  # Working hours
-            adjustment_factor *= 0.9
+        if 6 <= current_hour <= 23:  # Working hours
+            adjustment_factor *= 0.95
         
         return base_score * adjustment_factor
 
@@ -146,7 +149,8 @@ class RansomwareDetector:
             ]
             
             # Reshape ke 2D array (1 x n_features)
-            return np.array(features).reshape(1, -1)
+            # return np.array(features).reshape(1, -1)
+            return np.array(features, dtype=np.float64).reshape(1, -1)
 
         except Exception as e:
             self.logger.error(f"Error creating feature vector: {str(e)}")
@@ -238,44 +242,34 @@ class RansomwareDetector:
             raise
 
     def train(self, duration_seconds: int = 3600) -> None:
-        """
-        Melatih detector dengan data normal.
-        """
-        training_data = []
-        start_time = datetime.now()
-        
-        print(f"\nMemulai pengumpulan data training untuk {duration_seconds} detik...")
-        
+        """Training detector"""
         try:
+            training_data = []
+            start_time = datetime.now()
+            
+            print(f"\nCollecting training data for {duration_seconds} seconds...")
+            
             while (datetime.now() - start_time).total_seconds() < duration_seconds:
                 metrics = self._collect_all_metrics()
-                # Feature vector sudah dalam format 2D tetapi kita ambil row-nya saja
-                feature_vector = self._create_feature_vector(metrics)[0]
-                training_data.append(feature_vector)
-                self.storage.save_metrics(metrics)
+                feature_vector = self._create_feature_vector(metrics)
+                training_data.append(feature_vector[0])  # Ambil array 1D
                 print(".", end="", flush=True)
                 time.sleep(1)
             
-            # Convert list of features ke 2D numpy array
+            # Convert ke numpy array
             training_array = np.array(training_data)
             
-            print("\nMelatih model...")
+            print(f"\nTraining model with {len(training_data)} samples...")
             self.analyzer.train(training_array)
             
-            metadata = {
-                'start_time': start_time.isoformat(),
-                'duration_seconds': duration_seconds,
-                'samples_collected': len(training_data),
-                'features_shape': training_array.shape,
-                'timestamp': datetime.now().isoformat()
-            }
+            # Save model
+            model_path = os.path.join(self.data_dir, "models", "model_latest.joblib")
+            os.makedirs(os.path.dirname(model_path), exist_ok=True)
             
-            self.storage.save_training_data(training_array, metadata)
-            self.storage.save_model(self.analyzer, "model_latest.joblib")
+            self.analyzer.save(model_path)
             
             self.is_trained = True
-            print("Training selesai!")
-            self.logger.info("Model training completed successfully")
+            print(f"Training completed! Model saved to {model_path}")
             
         except Exception as e:
             self.logger.error(f"Error during training: {str(e)}")
@@ -295,3 +289,36 @@ class RansomwareDetector:
             'timestamp': datetime.now().isoformat()
         }
 
+    # def load_saved_model(self, model_path: str) -> bool:
+    #     """
+    #     Memuat model yang tersimpan dengan validasi.
+        
+    #     Args:
+    #         model_path: Path ke file model joblib
+            
+    #     Returns:
+    #         bool: True jika berhasil, False jika gagal
+    #     """
+    #     try:
+    #         # Dapatkan metrik saat ini untuk validasi
+    #         current_metrics = self._collect_all_metrics()
+            
+    #         # Validasi model dan metrik
+    #         is_valid, message, model = validate_model_and_metrics(
+    #             model_path, 
+    #             current_metrics
+    #         )
+            
+    #         if not is_valid:
+    #             self.logger.error(f"Validasi model gagal: {message}")
+    #             return False
+            
+    #         # Model valid, gunakan untuk analyzer
+    #         self.analyzer.model = model
+    #         self.is_trained = True
+    #         self.logger.info("Model berhasil dimuat dan divalidasi")
+    #         return True
+            
+    #     except Exception as e:
+    #         self.logger.error(f"Error memuat model: {str(e)}")
+    #         return False

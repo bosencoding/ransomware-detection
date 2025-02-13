@@ -39,6 +39,7 @@ from src.collectors.process_collector import ProcessCollector
 from src.analyzers.isolation_forest import IsolationForestAnalyzer
 from src.storage.file_storage import FileStorage
 from src.detectors.ransomware_detector import RansomwareDetector
+from src.utils.model_validator import ModelValidator
 from src.utils.cleanup import DataCleaner
 from src.config.thresholds import SystemThresholds
 
@@ -177,8 +178,9 @@ class RansomwareDetectorApp:
             logging.info("Analyzer initialized")
             
             # Buat detector
-            self.detector = RansomwareDetector(collectors, analyzer, self.storage)
+            self.detector = RansomwareDetector(collectors, analyzer, self.storage, data_dir=self.data_dir)
             logging.info("Detector initialized")
+            
             
         except Exception as e:
             logging.error(f"Failed to initialize components: {str(e)}")
@@ -269,6 +271,17 @@ def parse_arguments() -> argparse.Namespace:
     )
     
     parser.add_argument(
+        "--validate-only",
+        action="store_true",
+        help="Hanya validasi model tanpa menjalankan detector"
+    )
+    
+    parser.add_argument(
+        "--model-path",
+        type=str,
+        help="Path ke model yang akan divalidasi"
+    )
+    parser.add_argument(
         "-t", "--training-duration",
         type=int,
         default=300,
@@ -329,6 +342,15 @@ def main():
     
     # Buat instance aplikasi
     app = RansomwareDetectorApp()
+    
+    if args.validate_only:
+        model_path = args.model_path or os.path.join("data", "models", "model_latest.joblib")
+        validator = ModelValidator(model_path)
+        is_valid, message, _ = validator.load_and_validate_model()
+        print(f"\nHasil validasi model:")
+        print(f"Status: {'Valid' if is_valid else 'Tidak Valid'}")
+        print(f"Pesan: {message}")
+        return
     
     # Cek apakah perlu cleanup
     if not args.no_cleanup and confirm_cleanup():

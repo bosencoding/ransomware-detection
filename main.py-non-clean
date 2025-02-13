@@ -70,33 +70,33 @@ class RansomwareDetectorApp:
         logging.info("Logging system initialized")
         print(f"Log file: {log_file}")
     
-    def init_components(self) -> None:
-        """Inisialisasi komponen-komponen detector"""
-        try:
-            # Inisialisasi storage
-            self.storage = FileStorage(base_path=self.data_dir)
-            logging.info(f"Storage initialized at {self.data_dir}")
+    # def init_components(self) -> None:
+    #     """Inisialisasi komponen-komponen detector"""
+    #     try:
+    #         # Inisialisasi storage
+    #         self.storage = FileStorage(base_path=self.data_dir)
+    #         logging.info(f"Storage initialized at {self.data_dir}")
             
-            # Inisialisasi collectors
-            monitor_path = os.path.expanduser("~")  # Monitor home directory
-            system_collector = SystemMetricsCollector()
-            file_collector = FileActivityCollector(monitor_path)
-            process_collector = ProcessCollector()
+    #         # Inisialisasi collectors
+    #         monitor_path = os.path.expanduser("~")  # Monitor home directory
+    #         system_collector = SystemMetricsCollector()
+    #         file_collector = FileActivityCollector(monitor_path)
+    #         process_collector = ProcessCollector()
             
-            collectors = [system_collector, file_collector, process_collector]
-            logging.info("Collectors initialized")
+    #         collectors = [system_collector, file_collector, process_collector]
+    #         logging.info("Collectors initialized")
             
-            # Inisialisasi analyzer
-            analyzer = IsolationForestAnalyzer(contamination=0.1)
-            logging.info("Analyzer initialized")
+    #         # Inisialisasi analyzer
+    #         analyzer = IsolationForestAnalyzer(contamination=0.1)
+    #         logging.info("Analyzer initialized")
             
-            # Buat detector
-            self.detector = RansomwareDetector(collectors, analyzer, self.storage)
-            logging.info("Detector initialized")
+    #         # Buat detector
+    #         self.detector = RansomwareDetector(collectors, analyzer, self.storage)
+    #         logging.info("Detector initialized")
             
-        except Exception as e:
-            logging.error(f"Failed to initialize components: {str(e)}")
-            raise
+    #     except Exception as e:
+    #         logging.error(f"Failed to initialize components: {str(e)}")
+    #         raise
     
     def _handle_interrupt(self, signum, frame):
         """Handler untuk interrupt signal (Ctrl+C)"""
