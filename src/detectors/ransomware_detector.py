@@ -35,6 +35,7 @@ class RansomwareDetector:
         self.logger.setLevel(logging.INFO)
         self.last_alert_time = None
         self.alert_cooldown = 300 
+        
 
 
     def _analyze_process_behavior(self, processes: List[ProcessInfo]) -> Dict[str, Any]:
@@ -223,8 +224,11 @@ class RansomwareDetector:
             raise
             
     def detect(self) -> DetectionResult:
+        self.logger.debug(f"Analyzer trained status: {self.analyzer.is_trained}")
+        self.logger.debug(f"Detector trained status: {self.is_trained}")
+    
         """Melakukan deteksi anomali dengan cooldown period"""
-        if not self.is_trained:
+        if not self.analyzer.is_trained:
             raise ValueError("Detector belum dilatih!")
             
         try:

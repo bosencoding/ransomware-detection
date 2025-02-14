@@ -223,7 +223,105 @@ class RansomwareDetectorApp:
             print(f"Error during training from metrics: {e}")
             raise
     
- 
+    def test_model(self, duration_seconds: int = 60) -> None:
+        """
+        Menjalankan model dalam mode testing
+        """
+        try:
+            print("\nMemulai mode testing...")
+            
+            # Load model terbaru
+            model_path = os.path.join(self.data_dir, "models", "model_latest.joblib")
+            if not os.path.exists(model_path):
+                print(f"Model tidak ditemukan di: {model_path}")
+                return
+                
+            print(f"Menggunakan model dari: {model_path}")
+            
+            # Setup detector
+            self.setup_logging()
+            self.init_components()
+            
+            # Load model ke analyzer
+            try:
+                self.detector.analyzer.load(model_path)
+                # Verifikasi status
+                if not self.detector.analyzer.is_trained:
+                    print("Model dimuat tapi status tidak valid")
+                    return
+                    
+                print("Model berhasil dimuat dan siap digunakan")
+                
+            except Exception as e:
+                print(f"Gagal memuat model: {e}")
+                return
+            
+            # Debug info
+            print("\nStatus Model:")
+            print(f"Analyzer trained: {self.detector.analyzer.is_trained}")
+            print(f"N Features: {self.detector.analyzer.n_features}")
+            
+            # Mulai testing
+            start_time = datetime.now()
+            detections = []
+            
+            print(f"\nMenjalankan test selama {duration_seconds} detik...")
+            print("Press Ctrl+C to stop")
+            
+            while (datetime.now() - start_time).total_seconds() < duration_seconds:
+                try:
+                    result = self.detector.detect()
+                    
+                    # Simpan hasil deteksi
+                    detection_info = {
+                        'timestamp': datetime.now().isoformat(),
+                        'is_anomaly': result.is_anomaly,
+                        'score': result.score,
+                        'cpu_percent': result.metrics.cpu_percent,
+                        'memory_percent': result.metrics.memory_percent,
+                        'disk_read': result.metrics.disk_read_bytes,
+                        'disk_write': result.metrics.disk_write_bytes
+                    }
+                    detections.append(detection_info)
+                    
+                    # Print status
+                    self.print_status(result)
+                    
+                    time.sleep(1)  # Check setiap detik
+                    
+                except KeyboardInterrupt:
+                    print("\nTesting dihentikan oleh user")
+                    break
+                except Exception as e:
+                    print(f"Error during testing: {e}")
+                    continue
+            
+            # Simpan hasil testing
+            test_results = {
+                'start_time': start_time.isoformat(),
+                'duration': duration_seconds,
+                'total_checks': len(detections),
+                'anomalies_detected': sum(1 for d in detections if d['is_anomaly']),
+                'detections': detections
+            }
+            
+            results_path = os.path.join(self.data_dir, "testing", 
+                                    f"test_results_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json")
+            os.makedirs(os.path.dirname(results_path), exist_ok=True)
+            
+            with open(results_path, 'w') as f:
+                json.dump(test_results, f, indent=4)
+                
+            # Print ringkasan
+            print("\nRingkasan Testing:")
+            print(f"Total checks: {test_results['total_checks']}")
+            print(f"Anomali terdeteksi: {test_results['anomalies_detected']}")
+            print(f"Hasil lengkap disimpan di: {results_path}")
+            
+        except Exception as e:
+            print(f"Error dalam testing: {e}")
+            raise
+        
     def init_components(self) -> None:
         """Inisialisasi komponen-komponen detector"""
         try:
@@ -356,7 +454,11 @@ def parse_arguments() -> argparse.Namespace:
         action="store_true",
         help="Training dari data metrik yang sudah ada"
     )
-    
+    mode_group.add_argument(
+        "--test-model",
+        action="store_true",
+        help="Jalankan model dalam mode testing"
+    )
     # Argumen untuk path
     parser.add_argument(
         "--metrics-path",
@@ -400,6 +502,14 @@ def parse_arguments() -> argparse.Namespace:
         action="store_true",
         help="Jalankan tanpa membersihkan folder"
     )
+    
+    parser.add_argument(
+        "--test-duration",
+        type=int,
+        default=60,
+        help="Durasi testing dalam detik"
+    )
+    
 
     return parser.parse_args()
 
@@ -424,6 +534,7 @@ def confirm_cleanup() -> bool:
         elif response in ['n', 'no']:
             return False
         print("Mohon masukkan 'y' atau 'n'")
+
 
 def main():
     """Fungsi utama aplikasi"""
@@ -467,6 +578,11 @@ def main():
     #     app.run(args)
     
     # Cek apakah perlu cleanup
+    
+    if args.test_model:
+        app.test_model(args.test_duration)
+        return
+        
     if not args.no_cleanup and confirm_cleanup():
         print("\nMemulai pembersihan folder...")
         app.cleanup_data_folders()
