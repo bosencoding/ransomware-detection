@@ -29,7 +29,8 @@ class SystemWhitelist:
         'SearchIndexer.exe',
         'MsMpEng.exe',      # Windows Defender scanning
         'svchost.exe',      # Windows Update
-        'System',           # System processes
+        'System', 
+        'python.exe'          # System processes
     }
 
     """Whitelist untuk proses normal"""

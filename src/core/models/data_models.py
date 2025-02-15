@@ -42,20 +42,31 @@ class ProcessInfo:
 
 
     
+# @dataclass
+# class SystemMetrics:
+#     """Model data untuk metrik sistem"""
+#     cpu_percent: float
+#     memory_percent: float
+#     disk_read_bytes: int
+#     disk_write_bytes: int
+#     disk_read_rate: float
+#     disk_write_rate: float
+#     disk_read_count: int
+#     disk_write_count: int
+#     disk_busy_time: int
+#     timestamp: datetime
+
 @dataclass
 class SystemMetrics:
-    """Model data untuk metrik sistem"""
+    """Data model untuk metrik sistem"""
     cpu_percent: float
     memory_percent: float
-    disk_read_bytes: int
-    disk_write_bytes: int
-    disk_read_rate: float
-    disk_write_rate: float
-    disk_read_count: int
-    disk_write_count: int
-    disk_busy_time: int
+    #     disk_read_bytes: int
+#     disk_write_bytes: int
+    disk_read_rate: float   # MB/s
+    disk_write_rate: float  # MB/s
     timestamp: datetime
-
+    
 @dataclass
 class NetworkMetrics:
     """Model data untuk metrik jaringan"""

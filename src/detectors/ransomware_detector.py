@@ -131,40 +131,59 @@ class RansomwareDetector:
     def _create_feature_vector(self, metrics: Dict[str, Any]) -> np.ndarray:
         """Create feature vector dari metrics"""
         try:
-            # Untuk SystemMetrics object, akses langsung atributnya
-            if hasattr(metrics['system'], 'cpu_percent'):
-                # Jika metrics['system'] adalah SystemMetrics object
-                system_metrics = metrics['system']
-                features = [
-                    float(system_metrics.cpu_percent),
-                    float(system_metrics.memory_percent),
-                    float(system_metrics.disk_read_bytes),
-                    float(system_metrics.disk_write_bytes),
-                    float(len(metrics.get('files', []))),
-                    float(len([p for p in metrics.get('processes', []) 
-                            if getattr(p, 'cpu_percent', 0) > SystemThresholds.HIGH_CPU_PROCESS_THRESHOLD]))
-                ]
-            else:
-                # Jika metrics['system'] adalah dictionary (dari JSON)
-                system_metrics = metrics['system']
-                features = [
-                    float(system_metrics.get('cpu_percent', 0)),
-                    float(system_metrics.get('memory_percent', 0)),
-                    float(system_metrics.get('disk_read_bytes', 0)),
-                    float(system_metrics.get('disk_write_bytes', 0)),
-                    float(len(metrics.get('files', []))),
-                    float(len([p for p in metrics.get('processes', []) 
-                            if float(p.get('cpu_percent', 0)) > SystemThresholds.HIGH_CPU_PROCESS_THRESHOLD]))
-                ]
-
-            self.logger.debug(f"Created feature vector: {features}")
+            features = [
+                float(metrics['system'].cpu_percent),
+                float(metrics['system'].memory_percent),
+                float(metrics['system'].disk_read_rate),   # Gunakan disk_read_rate
+                float(metrics['system'].disk_write_rate),  # Gunakan disk_write_rate
+                float(len(metrics.get('files', []))),
+                float(len([p for p in metrics.get('processes', []) 
+                        if hasattr(p, 'cpu_percent') and p.cpu_percent > SystemThresholds.HIGH_CPU_PROCESS_THRESHOLD]))
+            ]
+            
             return np.array(features, dtype=np.float64).reshape(1, -1)
             
         except Exception as e:
             self.logger.error(f"Error creating feature vector: {str(e)}")
-            self.logger.error(f"Metrics type: {type(metrics)}")
-            self.logger.error(f"System metrics type: {type(metrics.get('system'))}")
             raise
+    
+    # def _create_feature_vector(self, metrics: Dict[str, Any]) -> np.ndarray:
+    #     """Create feature vector dari metrics"""
+    #     try:
+    #         # Untuk SystemMetrics object, akses langsung atributnya
+    #         if hasattr(metrics['system'], 'cpu_percent'):
+    #             # Jika metrics['system'] adalah SystemMetrics object
+    #             system_metrics = metrics['system']
+    #             features = [
+    #                 float(system_metrics.cpu_percent),
+    #                 float(system_metrics.memory_percent),
+    #                 float(system_metrics.disk_read_bytes),
+    #                 float(system_metrics.disk_write_bytes),
+    #                 float(len(metrics.get('files', []))),
+    #                 float(len([p for p in metrics.get('processes', []) 
+    #                         if getattr(p, 'cpu_percent', 0) > SystemThresholds.HIGH_CPU_PROCESS_THRESHOLD]))
+    #             ]
+    #         else:
+    #             # Jika metrics['system'] adalah dictionary (dari JSON)
+    #             system_metrics = metrics['system']
+    #             features = [
+    #                 float(system_metrics.get('cpu_percent', 0)),
+    #                 float(system_metrics.get('memory_percent', 0)),
+    #                 float(system_metrics.get('disk_read_bytes', 0)),
+    #                 float(system_metrics.get('disk_write_bytes', 0)),
+    #                 float(len(metrics.get('files', []))),
+    #                 float(len([p for p in metrics.get('processes', []) 
+    #                         if float(p.get('cpu_percent', 0)) > SystemThresholds.HIGH_CPU_PROCESS_THRESHOLD]))
+    #             ]
+
+    #         self.logger.debug(f"Created feature vector: {features}")
+    #         return np.array(features, dtype=np.float64).reshape(1, -1)
+            
+    #     except Exception as e:
+    #         self.logger.error(f"Error creating feature vector: {str(e)}")
+    #         self.logger.error(f"Metrics type: {type(metrics)}")
+    #         self.logger.error(f"System metrics type: {type(metrics.get('system'))}")
+    #         raise
     # def _create_feature_vector(self, metrics: Dict[str, Any]) -> np.ndarray:
     #     """
     #     Membuat feature vector dari metrics.
@@ -222,66 +241,184 @@ class RansomwareDetector:
         except Exception as e:
             self.logger.error(f"Error collecting metrics: {str(e)}")
             raise
-            
-    def detect(self) -> DetectionResult:
-        self.logger.debug(f"Analyzer trained status: {self.analyzer.is_trained}")
-        self.logger.debug(f"Detector trained status: {self.is_trained}")
+        
     
-        """Melakukan deteksi anomali dengan cooldown period"""
+    def detect(self) -> DetectionResult:
+        """Melakukan deteksi anomali dengan pengecekan I/O rate per detik"""
         if not self.analyzer.is_trained:
             raise ValueError("Detector belum dilatih!")
-            
+        
         try:
             current_metrics = self._collect_all_metrics()
             
+            # I/O rates dalam MB/s
+            write_rate = current_metrics['system'].disk_write_rate
+            read_rate = current_metrics['system'].disk_read_rate
+            
+            # Cek I/O rate
+            io_anomaly = False
+            io_details = {}
+            
+            # Cek write rate dengan threshold
+            if write_rate > SystemThresholds.DISK_WRITE_RATE_THRESHOLD:
+                SystemThresholds.high_io_counter += 1
+                if SystemThresholds.high_io_counter >= SystemThresholds.SUSTAINED_IO_DURATION:
+                    io_anomaly = True
+                    io_details['high_write_rate'] = {
+                        'current': write_rate,
+                        'threshold': SystemThresholds.DISK_WRITE_RATE_THRESHOLD,
+                        'duration': SystemThresholds.high_io_counter
+                    }
+            else:
+                SystemThresholds.high_io_counter = 0
+            
+            # Analisis model
             feature_vector = self._create_feature_vector(current_metrics)
             analysis_result = self.analyzer.analyze(feature_vector)
             
-            # Apply context-aware anomaly detection
-            is_anomaly = analysis_result['is_anomaly']
-            if is_anomaly:
-                current_time = datetime.now()
-                
-                # Check cooldown period
-                if hasattr(self, 'last_alert_time') and self.last_alert_time:
-                    time_since_last_alert = (current_time - self.last_alert_time).total_seconds()
-                    if time_since_last_alert < self.alert_cooldown:
-                        is_anomaly = False  # Suppress alert during cooldown
-                
-                # Adjust score based on context
-                adjusted_score = self._calculate_anomaly_score(analysis_result)
-                
-                # Update last alert time if still anomalous
-                if is_anomaly:
-                    self.last_alert_time = current_time
-                    analysis_result['anomaly_score'] = adjusted_score
+            # Set is_anomaly berdasarkan IO dan anomaly score
+            is_anomaly = io_anomaly or analysis_result['anomaly_score'] < -0.7  # Perbaikan di sini
             
+            # Update details
+            analysis_result['io_analysis'] = {
+                'write_rate': write_rate,
+                'read_rate': read_rate,
+                'io_anomaly': io_anomaly,
+                'io_details': io_details
+            }
+            
+            # Buat objek DetectionResult
             return DetectionResult(
                 is_anomaly=is_anomaly,
-                score=analysis_result['anomaly_score'],
+                score=analysis_result['anomaly_score'],  # Pastikan konsisten dengan key
                 metrics=current_metrics['system'],
                 file_activities=current_metrics.get('files', []),
                 suspicious_processes=current_metrics.get('processes', []),
                 timestamp=datetime.now(),
-                details={
-                    **analysis_result,
-                    'context_information': {
-                        'browser_activity': any(
-                            SystemThresholds.is_browser_process(p.name) 
-                            for p in current_metrics.get('processes', [])
-                        ),
-                        'system_maintenance': any(
-                            p.name.lower() in ['wuauclt.exe', 'trustedinstaller.exe'] 
-                            for p in current_metrics.get('processes', [])
-                        ),
-                        'time_of_day': datetime.now().hour
-                    }
-                }
+                details=analysis_result
             )
             
         except Exception as e:
             self.logger.error(f"Error during detection: {str(e)}")
+            self.logger.error(f"Analysis result keys: {analysis_result.keys()}")  # Debug
             raise
+    # def detect(self) -> DetectionResult:
+    #     """Melakukan deteksi anomali dengan pengecekan I/O rate per detik"""
+    #     if not self.analyzer.is_trained:
+    #         raise ValueError("Detector belum dilatih!")
+        
+    #     try:
+    #         current_metrics = self._collect_all_metrics()
+            
+    #         # I/O rates sudah dalam MB/s
+    #         write_rate = current_metrics['system'].disk_write_rate
+    #         read_rate = current_metrics['system'].disk_read_rate
+            
+    #         # Cek I/O rate
+    #         io_anomaly = False
+    #         io_details = {}
+            
+    #         # Cek write rate
+    #         if write_rate > SystemThresholds.DISK_WRITE_RATE_THRESHOLD:
+    #             SystemThresholds.high_io_counter += 1
+    #             if SystemThresholds.high_io_counter >= SystemThresholds.SUSTAINED_IO_DURATION:
+    #                 io_anomaly = True
+    #                 io_details['high_write_rate'] = {
+    #                     'current': write_rate,
+    #                     'threshold': SystemThresholds.DISK_WRITE_RATE_THRESHOLD,
+    #                     'duration': SystemThresholds.high_io_counter
+    #                 }
+    #         else:
+    #             SystemThresholds.high_io_counter = 0
+
+    #         # Analisis model
+    #         feature_vector = self._create_feature_vector(current_metrics)
+    #         analysis_result = self.analyzer.analyze(feature_vector)
+            
+    #         # Gabungkan hasil
+    #         is_anomaly = analysis_result['is_anomaly'] or io_anomaly
+            
+    #         # Update details dengan informasi I/O
+    #         analysis_result['io_analysis'] = {
+    #             'write_rate': write_rate,
+    #             'read_rate': read_rate,
+    #             'io_anomaly': io_anomaly,
+    #             'io_details': io_details
+    #         }
+            
+    #         return DetectionResult(
+    #             is_anomaly=is_anomaly,
+    #             score=analysis_result['anomaly_score'],
+    #             metrics=current_metrics['system'],
+    #             file_activities=current_metrics.get('files', []),
+    #             suspicious_processes=current_metrics.get('processes', []),
+    #             timestamp=datetime.now(),
+    #             details=analysis_result
+    #         )
+            
+    #     except Exception as e:
+    #         self.logger.error(f"Error during detection: {str(e)}")
+    #         raise
+    # def detect(self) -> DetectionResult:
+        
+        # self.logger.debug(f"Analyzer trained status: {self.analyzer.is_trained}")
+        # self.logger.debug(f"Detector trained status: {self.is_trained}")
+    
+        # """Melakukan deteksi anomali dengan cooldown period"""
+        # if not self.analyzer.is_trained:
+        #     raise ValueError("Detector belum dilatih!")
+            
+        # try:
+        #     current_metrics = self._collect_all_metrics()
+            
+        #     feature_vector = self._create_feature_vector(current_metrics)
+        #     analysis_result = self.analyzer.analyze(feature_vector)
+            
+        #     # Apply context-aware anomaly detection
+        #     is_anomaly = analysis_result['is_anomaly']
+        #     if is_anomaly:
+        #         current_time = datetime.now()
+                
+        #         # Check cooldown period
+        #         if hasattr(self, 'last_alert_time') and self.last_alert_time:
+        #             time_since_last_alert = (current_time - self.last_alert_time).total_seconds()
+        #             if time_since_last_alert < self.alert_cooldown:
+        #                 is_anomaly = False  # Suppress alert during cooldown
+                
+        #         # Adjust score based on context
+        #         adjusted_score = self._calculate_anomaly_score(analysis_result)
+                
+        #         # Update last alert time if still anomalous
+        #         if is_anomaly:
+        #             self.last_alert_time = current_time
+        #             analysis_result['anomaly_score'] = adjusted_score
+            
+        #     return DetectionResult(
+        #         is_anomaly=is_anomaly,
+        #         score=analysis_result['anomaly_score'],
+        #         metrics=current_metrics['system'],
+        #         file_activities=current_metrics.get('files', []),
+        #         suspicious_processes=current_metrics.get('processes', []),
+        #         timestamp=datetime.now(),
+        #         details={
+        #             **analysis_result,
+        #             'context_information': {
+        #                 'browser_activity': any(
+        #                     SystemThresholds.is_browser_process(p.name) 
+        #                     for p in current_metrics.get('processes', [])
+        #                 ),
+        #                 'system_maintenance': any(
+        #                     p.name.lower() in ['wuauclt.exe', 'trustedinstaller.exe'] 
+        #                     for p in current_metrics.get('processes', [])
+        #                 ),
+        #                 'time_of_day': datetime.now().hour
+        #             }
+        #         }
+        #     )
+            
+        # except Exception as e:
+        #     self.logger.error(f"Error during detection: {str(e)}")
+        #     raise
 
     def train(self, duration_seconds: int = 3600) -> None:
         """Training detector"""

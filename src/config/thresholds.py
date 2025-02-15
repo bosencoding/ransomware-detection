@@ -14,10 +14,16 @@ class SystemThresholds:
     MEMORY_NORMAL_MAX = 85.0        # Batas normal memory
     
     # Disk I/O thresholds (MB/s)
-    DISK_READ_RATE_THRESHOLD = 200.0  # Threshold disk read
-    DISK_WRITE_RATE_THRESHOLD = 100.0 # Threshold disk write
+    DISK_READ_RATE_THRESHOLD = 20.0  # Threshold disk read
+    DISK_WRITE_RATE_THRESHOLD = 20.0 # Threshold disk write
     DISK_READ_NORMAL_MAX = 150.0     # Batas normal disk read
     DISK_WRITE_NORMAL_MAX = 75.0     # Batas normal disk write
+    
+    # Durasi untuk sustained I/O (dalam detik)
+    SUSTAINED_IO_DURATION = 5  # Berapa lama I/O tinggi bertahan
+    ANOMALY_SCORE_THRESHOLD = -0.7 
+    # Counter untuk menghitung berapa lama I/O tinggi bertahan
+    high_io_counter = 0
     
     # File operation thresholds
     FILE_OPS_PER_SECOND = 500       # Operasi file per detik
@@ -64,6 +70,11 @@ class SystemThresholds:
         'smss.exe'
     }
     
+    @classmethod
+    def reset_counters(cls):
+        """Reset semua counters"""
+        cls.high_io_counter = 0
+        
     @classmethod
     def is_browser_process(cls, process_name: str) -> bool:
         """Cek apakah proses adalah browser"""

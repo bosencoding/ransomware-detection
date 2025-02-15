@@ -6,6 +6,7 @@ import joblib
 import logging
 from typing import Dict, Any, Tuple
 from datetime import datetime
+from src.config.thresholds import SystemThresholds
 
 class IsolationForestAnalyzer:
     def __init__(self, contamination: float = 0.01):
@@ -121,47 +122,73 @@ class IsolationForestAnalyzer:
             
         except Exception as e:
             self.logger.error(f"Error loading model: {str(e)}")
-            raise
-        
+     
+    # src/analyzers/isolation_forest.py
     def analyze(self, data: np.ndarray) -> Dict[str, Any]:
-        """Analyze data untuk anomali detection"""
+        """Analyze data untuk anomali"""
         if not self.is_trained:
-            raise ValueError("Model not trained yet")
-            
+            raise ValueError("Model hasn't been trained!")
+        
         try:
-            # Normalize data
+            # Normalize dan predict
             normalized_data = self.scaler.transform(data)
             
             # Get prediction dan score
             prediction = self.isolation_forest.predict(normalized_data)
-            score = self.isolation_forest.score_samples(normalized_data)
+            anomaly_score = float(self.isolation_forest.score_samples(normalized_data)[0])
             
-            # Calculate z-score jika ada baseline
-            z_score = None
-            if self.score_mean is not None and self.score_std is not None:
-                z_score = (score[0] - self.score_mean) / self.score_std
-            
-            # Determine anomali dengan multiple criteria
-            is_anomaly = any([
-                prediction[0] == -1,  # IsolationForest prediction
-                score[0] < -0.4,      # Score threshold
-                z_score < -3 if z_score is not None else False  # Statistical threshold
-            ])
-            
-            result = {
-                'is_anomaly': is_anomaly,
-                'anomaly_score': float(score[0]),
-                'raw_prediction': int(prediction[0]),
-                'z_score': float(z_score) if z_score is not None else None,
-                'statistical_bounds': {
-                    'mean': float(self.score_mean) if self.score_mean is not None else None,
-                    'std': float(self.score_std) if self.score_std is not None else None
+            return {
+                'is_anomaly': prediction[0] == -1,
+                'anomaly_score': anomaly_score,  # Pastikan menggunakan key yang sama
+                'details': {
+                    'prediction': int(prediction[0]),
+                    'threshold': SystemThresholds.ANOMALY_SCORE_THRESHOLD
                 }
             }
-            
-            self.logger.debug(f"Analysis result: {result}")
-            return result
             
         except Exception as e:
             self.logger.error(f"Error during analysis: {str(e)}")
             raise
+        
+    # def analyze(self, data: np.ndarray) -> Dict[str, Any]:
+    #     """Analyze data untuk anomali detection"""
+    #     if not self.is_trained:
+    #         raise ValueError("Model not trained yet")
+            
+    #     try:
+    #         # Normalize data
+    #         normalized_data = self.scaler.transform(data)
+            
+    #         # Get prediction dan score
+    #         prediction = self.isolation_forest.predict(normalized_data)
+    #         score = self.isolation_forest.score_samples(normalized_data)
+            
+    #         # Calculate z-score jika ada baseline
+    #         z_score = None
+    #         if self.score_mean is not None and self.score_std is not None:
+    #             z_score = (score[0] - self.score_mean) / self.score_std
+            
+    #         # Determine anomali dengan multiple criteria
+    #         is_anomaly = any([
+    #             prediction[0] == -1,  # IsolationForest prediction
+    #             score[0] < -0.4,      # Score threshold
+    #             z_score < -3 if z_score is not None else False  # Statistical threshold
+    #         ])
+            
+    #         result = {
+    #             'is_anomaly': is_anomaly,
+    #             'anomaly_score': float(score[0]),
+    #             'raw_prediction': int(prediction[0]),
+    #             'z_score': float(z_score) if z_score is not None else None,
+    #             'statistical_bounds': {
+    #                 'mean': float(self.score_mean) if self.score_mean is not None else None,
+    #                 'std': float(self.score_std) if self.score_std is not None else None
+    #             }
+    #         }
+            
+    #         self.logger.debug(f"Analysis result: {result}")
+    #         return result
+            
+    #     except Exception as e:
+    #         self.logger.error(f"Error during analysis: {str(e)}")
+    #         raise

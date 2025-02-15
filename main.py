@@ -279,8 +279,8 @@ class RansomwareDetectorApp:
                         'score': result.score,
                         'cpu_percent': result.metrics.cpu_percent,
                         'memory_percent': result.metrics.memory_percent,
-                        'disk_read': result.metrics.disk_read_bytes,
-                        'disk_write': result.metrics.disk_write_bytes
+                        'disk_read': result.metrics.disk_read_rate,
+                        'disk_write': result.metrics.disk_write_rate
                     }
                     detections.append(detection_info)
                     
@@ -296,27 +296,83 @@ class RansomwareDetectorApp:
                     print(f"Error during testing: {e}")
                     continue
             
-            # Simpan hasil testing
+            # Kalkulasi statistik dan akurasi
+            total_samples = len(detections)
+            anomalies = sum(1 for d in detections if d['is_anomaly'])
+            normal = total_samples - anomalies
+            
+            # Hitung rata-rata score untuk threshold
+            scores = [d['score'] for d in detections]
+            avg_score = np.mean(scores)
+            std_score = np.std(scores)
+            threshold = avg_score - (2 * std_score)
+            
+            # Hitung deteksi yang benar
+            correct_detections = sum(
+                1 for d in detections
+                if (d['score'] < threshold) == d['is_anomaly']
+            )
+            
+            accuracy = (correct_detections / total_samples) * 100
+            
+            # Buat dictionary untuk accuracy analysis
+            accuracy_analysis = {
+                'total_samples': total_samples,
+                'correct_detections': correct_detections,
+                'accuracy_percentage': accuracy,
+                'threshold_score': threshold,
+                'distribution': {
+                    'normal_cases': normal,
+                    'normal_percentage': (normal/total_samples)*100,
+                    'anomaly_cases': anomalies,
+                    'anomaly_percentage': (anomalies/total_samples)*100
+                }
+            }
+
+
+            # Update test_results dengan accuracy analysis
             test_results = {
                 'start_time': start_time.isoformat(),
                 'duration': duration_seconds,
                 'total_checks': len(detections),
                 'anomalies_detected': sum(1 for d in detections if d['is_anomaly']),
-                'detections': detections
+                'detections': detections,
+                'accuracy_analysis': accuracy_analysis,
+                'score_statistics': {
+                    'mean': float(avg_score),
+                    'std': float(std_score),
+                    'min': float(min(scores)),
+                    'max': float(max(scores))
+                }
             }
             
             results_path = os.path.join(self.data_dir, "testing", 
                                     f"test_results_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json")
             os.makedirs(os.path.dirname(results_path), exist_ok=True)
             
-            with open(results_path, 'w') as f:
-                json.dump(test_results, f, indent=4)
-                
-            # Print ringkasan
+            # Print rangkuman
             print("\nRingkasan Testing:")
             print(f"Total checks: {test_results['total_checks']}")
             print(f"Anomali terdeteksi: {test_results['anomalies_detected']}")
-            print(f"Hasil lengkap disimpan di: {results_path}")
+            print(f"\nAnalisis Akurasi:")
+            print(f"Total sampel: {accuracy_analysis['total_samples']}")
+            print(f"Deteksi benar: {accuracy_analysis['correct_detections']}")
+            print(f"Akurasi: {accuracy_analysis['accuracy_percentage']:.2f}%")
+            print(f"Threshold score: {accuracy_analysis['threshold_score']:.3f}")
+            print(f"\nDistribusi Hasil:")
+            print(f"Kasus normal: {accuracy_analysis['distribution']['normal_cases']} "
+                f"({accuracy_analysis['distribution']['normal_percentage']:.2f}%)")
+            print(f"Kasus anomali: {accuracy_analysis['distribution']['anomaly_cases']} "
+                f"({accuracy_analysis['distribution']['anomaly_percentage']:.2f}%)")
+            print(f"\nHasil lengkap disimpan di: {results_path}")
+            
+            
+            
+            # Simpan hasil
+            with open(results_path, 'w') as f:
+                json.dump(test_results, f, indent=4)
+                
+            print(f"\nHasil lengkap disimpan di: {results_path}")
             
         except Exception as e:
             print(f"Error dalam testing: {e}")
@@ -353,55 +409,88 @@ class RansomwareDetectorApp:
             logging.error(f"Failed to initialize components: {str(e)}")
             raise
     
+    # def print_status(self, result: DetectionResult) -> None:
+    #     """Menampilkan status deteksi dengan detail"""
+    #     os.system('cls' if os.name == 'nt' else 'clear')
+    #     print("\nRansomware Detector Status")
+    #     print("=" * 50)
+    #     print(f"Timestamp: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+        
+    #     # System Metrics
+    #     print("\n📊 Metrik Sistem:")
+    #     print(f"CPU Usage: {result.metrics.cpu_percent:.1f}%")
+    #     print(f"Memory Usage: {result.metrics.memory_percent:.1f}%")
+        
+    #     # Disk I/O
+    #     print("\n💾 Storage I/O:")
+    #     print(f"Read Rate: {result.metrics.disk_read_rate / 1024:.2f} KB/s")
+    #     print(f"Write Rate: {result.metrics.disk_write_rate / 1024:.2f} KB/s")
+    #     print(f"Total Read: {result.metrics.disk_read_bytes / 1024:.2f} KB")
+    #     print(f"Total Write: {result.metrics.disk_write_bytes / 1024:.2f} KB")
+    #     print(f"Read Operations: {result.metrics.disk_read_count} ops")
+    #     print(f"Write Operations: {result.metrics.disk_write_count} ops")
+        
+    #     # Network Activity (hanya informasi)
+    #     # if hasattr(result, 'network_metrics') and result.network_metrics is not None:
+    #     #     print("\n🌐 Network Activity (monitoring only):")
+    #     #     print(f"Upload Rate: {result.network_metrics.send_rate_kb:.2f} KB/s")
+    #     #     print(f"Download Rate: {result.network_metrics.recv_rate_kb:.2f} KB/s")
+        
+    #     # Score dan Status
+    #     print(f"\n📈 Score Anomali: {result.score:.3f}")
+        
+    #     # Info file metrics yang disimpan
+    #     metrics_files = len(os.listdir(os.path.join(self.data_dir, "metrics")))
+    #     print(f"\nMetrics Tersimpan: {metrics_files} file")
+        
+    #     if result.is_anomaly:
+    #         print("\n⚠️  PERINGATAN: Aktivitas Mencurigakan Terdeteksi!")
+            
+    #         # Tampilkan detail faktor anomali
+    #         if result.details and 'anomaly_factors' in result.details:
+    #             print("\nDetail Faktor Anomali:")
+    #             for factor in result.details['anomaly_factors']:
+    #                 print(f"- {factor}")
+                
+    #             print("\nRekomendasi:")
+    #             print("1. Monitor proses yang menggunakan CPU/Memory tinggi")
+    #             print("2. Periksa aktivitas disk yang tidak normal")
+    #             print("3. Cek perubahan file yang mencurigakan")
+    #     else:
+    #         print("✅ Status: Normal")
+        
+    #     print("\nPress Ctrl+C to stop")
+    
     def print_status(self, result: DetectionResult) -> None:
-        """Menampilkan status deteksi dengan detail"""
+        """Menampilkan status deteksi dengan detail I/O"""
         os.system('cls' if os.name == 'nt' else 'clear')
         print("\nRansomware Detector Status")
         print("=" * 50)
         print(f"Timestamp: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
         
-        # System Metrics
-        print("\n📊 Metrik Sistem:")
+        print("\nMetrik Sistem:")
         print(f"CPU Usage: {result.metrics.cpu_percent:.1f}%")
         print(f"Memory Usage: {result.metrics.memory_percent:.1f}%")
         
-        # Disk I/O
-        print("\n💾 Storage I/O:")
-        print(f"Read Rate: {result.metrics.disk_read_rate / 1024:.2f} KB/s")
-        print(f"Write Rate: {result.metrics.disk_write_rate / 1024:.2f} KB/s")
-        print(f"Total Read: {result.metrics.disk_read_bytes / 1024:.2f} KB")
-        print(f"Total Write: {result.metrics.disk_write_bytes / 1024:.2f} KB")
-        print(f"Read Operations: {result.metrics.disk_read_count} ops")
-        print(f"Write Operations: {result.metrics.disk_write_count} ops")
-        
-        # Network Activity (hanya informasi)
-        # if hasattr(result, 'network_metrics') and result.network_metrics is not None:
-        #     print("\n🌐 Network Activity (monitoring only):")
-        #     print(f"Upload Rate: {result.network_metrics.send_rate_kb:.2f} KB/s")
-        #     print(f"Download Rate: {result.network_metrics.recv_rate_kb:.2f} KB/s")
-        
-        # Score dan Status
-        print(f"\n📈 Score Anomali: {result.score:.3f}")
-        
-        # Info file metrics yang disimpan
-        metrics_files = len(os.listdir(os.path.join(self.data_dir, "metrics")))
-        print(f"\nMetrics Tersimpan: {metrics_files} file")
+        # Tampilkan I/O rates
+         # Tampilkan I/O rates dengan atribut yang benar
+        print(f"Disk Write Rate: {result.metrics.disk_write_rate:.2f} MB/s")
+        print(f"Disk Read Rate: {result.metrics.disk_read_rate:.2f} MB/s")
         
         if result.is_anomaly:
             print("\n⚠️  PERINGATAN: Aktivitas Mencurigakan Terdeteksi!")
+            print(f"Score Anomali: {result.score:.2f}")
             
-            # Tampilkan detail faktor anomali
-            if result.details and 'anomaly_factors' in result.details:
-                print("\nDetail Faktor Anomali:")
-                for factor in result.details['anomaly_factors']:
-                    print(f"- {factor}")
-                
-                print("\nRekomendasi:")
-                print("1. Monitor proses yang menggunakan CPU/Memory tinggi")
-                print("2. Periksa aktivitas disk yang tidak normal")
-                print("3. Cek perubahan file yang mencurigakan")
+            # Tampilkan detail I/O jika anomali
+            if result.details['io_analysis']['io_anomaly']:
+                io_details = result.details['io_analysis']['io_details']
+                if 'high_write_rate' in io_details:
+                    print("\nDisk I/O Mencurigakan:")
+                    print(f"Write Rate: {io_details['high_write_rate']['current']:.2f} MB/s")
+                    print(f"Threshold: {io_details['high_write_rate']['threshold']:.2f} MB/s")
+                    print(f"Durasi: {io_details['high_write_rate']['duration']} detik")
         else:
-            print("✅ Status: Normal")
+            print("\n✅ Status: Normal")
         
         print("\nPress Ctrl+C to stop")
     
