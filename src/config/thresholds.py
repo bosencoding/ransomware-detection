@@ -13,6 +13,7 @@ class SystemThresholds:
     MEMORY_HIGH_THRESHOLD = 90.0     # Threshold tinggi untuk memory
     MEMORY_NORMAL_MAX = 85.0        # Batas normal memory
     
+<<<<<<< HEAD
     # # Disk I/O thresholds (MB/s)
      # Disk I/O thresholds (MB/s)
     DISK_READ_RATE_THRESHOLD = 12.0   # Read rate yang dianggap tinggi
@@ -39,6 +40,19 @@ class SystemThresholds:
     # ANOMALY_SCORE_THRESHOLD = -0.7 
     # Counter untuk menghitung berapa lama I/O tinggi bertahan
     # high_io_counter = 0
+=======
+    # Disk I/O thresholds (MB/s)
+    DISK_READ_RATE_THRESHOLD = 20.0  # Threshold disk read
+    DISK_WRITE_RATE_THRESHOLD = 20.0 # Threshold disk write
+    DISK_READ_NORMAL_MAX = 150.0     # Batas normal disk read
+    DISK_WRITE_NORMAL_MAX = 75.0     # Batas normal disk write
+>>>>>>> ccc2ef3a73486879f19004c5410e29375d2cb112
+    
+    # Durasi untuk sustained I/O (dalam detik)
+    SUSTAINED_IO_DURATION = 5  # Berapa lama I/O tinggi bertahan
+    ANOMALY_SCORE_THRESHOLD = -0.7 
+    # Counter untuk menghitung berapa lama I/O tinggi bertahan
+    high_io_counter = 0
     
     # File operation thresholds
     FILE_OPS_PER_SECOND = 500       # Operasi file per detik
@@ -86,6 +100,7 @@ class SystemThresholds:
     }
     
     @classmethod
+<<<<<<< HEAD
     def get_high_io_counter(cls):
         return cls._high_io_counter
     
@@ -98,6 +113,8 @@ class SystemThresholds:
         cls._high_io_counter = 0
     
     @classmethod
+=======
+>>>>>>> ccc2ef3a73486879f19004c5410e29375d2cb112
     def reset_counters(cls):
         """Reset semua counters"""
         cls.high_io_counter = 0

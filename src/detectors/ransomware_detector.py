@@ -249,11 +249,21 @@ class RansomwareDetector:
             self.logger.error(f"Error collecting metrics: {str(e)}")
             raise
         
+<<<<<<< HEAD
     def detect(self) -> DetectionResult:
+=======
+    
+    def detect(self) -> DetectionResult:
+        """Melakukan deteksi anomali dengan pengecekan I/O rate per detik"""
+        if not self.analyzer.is_trained:
+            raise ValueError("Detector belum dilatih!")
+        
+>>>>>>> ccc2ef3a73486879f19004c5410e29375d2cb112
         try:
             current_metrics = self._collect_all_metrics()
             write_rate = current_metrics['system'].disk_write_rate
             
+<<<<<<< HEAD
             # Hitung z-score untuk write rate
             z_score = (write_rate - self.baseline_mean) / self.baseline_std if self.baseline_std > 0 else 0
             
@@ -298,6 +308,48 @@ class RansomwareDetector:
             return DetectionResult(
                 is_anomaly=is_anomaly,
                 score=normalized_score,
+=======
+            # I/O rates dalam MB/s
+            write_rate = current_metrics['system'].disk_write_rate
+            read_rate = current_metrics['system'].disk_read_rate
+            
+            # Cek I/O rate
+            io_anomaly = False
+            io_details = {}
+            
+            # Cek write rate dengan threshold
+            if write_rate > SystemThresholds.DISK_WRITE_RATE_THRESHOLD:
+                SystemThresholds.high_io_counter += 1
+                if SystemThresholds.high_io_counter >= SystemThresholds.SUSTAINED_IO_DURATION:
+                    io_anomaly = True
+                    io_details['high_write_rate'] = {
+                        'current': write_rate,
+                        'threshold': SystemThresholds.DISK_WRITE_RATE_THRESHOLD,
+                        'duration': SystemThresholds.high_io_counter
+                    }
+            else:
+                SystemThresholds.high_io_counter = 0
+            
+            # Analisis model
+            feature_vector = self._create_feature_vector(current_metrics)
+            analysis_result = self.analyzer.analyze(feature_vector)
+            
+            # Set is_anomaly berdasarkan IO dan anomaly score
+            is_anomaly = io_anomaly or analysis_result['anomaly_score'] < -0.7  # Perbaikan di sini
+            
+            # Update details
+            analysis_result['io_analysis'] = {
+                'write_rate': write_rate,
+                'read_rate': read_rate,
+                'io_anomaly': io_anomaly,
+                'io_details': io_details
+            }
+            
+            # Buat objek DetectionResult
+            return DetectionResult(
+                is_anomaly=is_anomaly,
+                score=analysis_result['anomaly_score'],  # Pastikan konsisten dengan key
+>>>>>>> ccc2ef3a73486879f19004c5410e29375d2cb112
                 metrics=current_metrics['system'],
                 file_activities=current_metrics.get('files', []),
                 suspicious_processes=current_metrics.get('processes', []),
@@ -307,6 +359,7 @@ class RansomwareDetector:
         
         except Exception as e:
             self.logger.error(f"Error during detection: {str(e)}")
+            self.logger.error(f"Analysis result keys: {analysis_result.keys()}")  # Debug
             raise
     # def detect(self) -> DetectionResult:
     #     """Melakukan deteksi anomali dengan pengecekan I/O rate per detik"""
@@ -316,6 +369,7 @@ class RansomwareDetector:
     #     try:
     #         current_metrics = self._collect_all_metrics()
             
+<<<<<<< HEAD
     #         # I/O rates dalam MB/s
     #         write_rate = current_metrics['system'].disk_write_rate
     #         read_rate = current_metrics['system'].disk_read_rate
@@ -395,6 +449,8 @@ class RansomwareDetector:
     #     try:
     #         current_metrics = self._collect_all_metrics()
             
+=======
+>>>>>>> ccc2ef3a73486879f19004c5410e29375d2cb112
     #         # I/O rates sudah dalam MB/s
     #         write_rate = current_metrics['system'].disk_write_rate
     #         read_rate = current_metrics['system'].disk_read_rate
