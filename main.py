@@ -463,7 +463,7 @@ class RansomwareDetectorApp:
     
     def print_status(self, result: DetectionResult) -> None:
         """Menampilkan status deteksi dengan detail I/O"""
-        os.system('cls' if os.name == 'nt' else 'clear')
+        # os.system('cls' if os.name == 'nt' else 'clear')
         print("\nRansomware Detector Status")
         print("=" * 50)
         print(f"Timestamp: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
@@ -481,14 +481,14 @@ class RansomwareDetectorApp:
             print("\n⚠️  PERINGATAN: Aktivitas Mencurigakan Terdeteksi!")
             print(f"Score Anomali: {result.score:.2f}")
             
-            # Tampilkan detail I/O jika anomali
-            if result.details['io_analysis']['io_anomaly']:
-                io_details = result.details['io_analysis']['io_details']
-                if 'high_write_rate' in io_details:
-                    print("\nDisk I/O Mencurigakan:")
-                    print(f"Write Rate: {io_details['high_write_rate']['current']:.2f} MB/s")
-                    print(f"Threshold: {io_details['high_write_rate']['threshold']:.2f} MB/s")
-                    print(f"Durasi: {io_details['high_write_rate']['duration']} detik")
+            # # Tampilkan detail I/O jika anomali
+            # if result.details['io_analysis']['io_anomaly']:
+            #     io_details = result.details['io_analysis']['io_details']
+            #     if 'high_write_rate' in io_details:
+            #         print("\nDisk I/O Mencurigakan:")
+            #         print(f"Write Rate: {io_details['high_write_rate']['current']:.2f} MB/s")
+            #         print(f"Threshold: {io_details['high_write_rate']['threshold']:.2f} MB/s")
+            #         print(f"Durasi: {io_details['high_write_rate']['duration']} detik")
         else:
             print("\n✅ Status: Normal")
         

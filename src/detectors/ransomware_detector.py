@@ -35,6 +35,13 @@ class RansomwareDetector:
         self.logger.setLevel(logging.INFO)
         self.last_alert_time = None
         self.alert_cooldown = 300 
+        # Tambahkan baseline statistics
+        self.baseline_mean = 0
+        self.baseline_std = 0
+        self.baseline_scores = []
+        self.warm_up_period = 10  # Warm up 10 detik
+        self.start_time = datetime.now()
+        
         
 
 
@@ -99,7 +106,7 @@ class RansomwareDetector:
     def _calculate_anomaly_score(self, metrics: Dict[str, Any]) -> float:
         """Calculate adjusted anomaly score based on context"""
         base_score = metrics.get('anomaly_score', 0)
-        adjustment_factor = 1.0
+        adjustment_factor = 0.7
         
         # Check for browser activity
         browser_active = any(
@@ -109,7 +116,7 @@ class RansomwareDetector:
         
         if browser_active:
             # Reduce sensitivity for browser activity
-            adjustment_factor *= 0.7
+            adjustment_factor *= 0.1
 
         # Check for system updates or maintenance
         system_maintenance = any(
@@ -119,12 +126,12 @@ class RansomwareDetector:
         
         if system_maintenance:
             # Reduce sensitivity further for system maintenance
-            adjustment_factor *= 0.8
+            adjustment_factor *= 0.4
         
         # Adjust based on time of day (reduce sensitivity during working hours)
         current_hour = datetime.now().hour
         if 6 <= current_hour <= 23:  # Working hours
-            adjustment_factor *= 0.95
+            adjustment_factor *= 0.2
         
         return base_score * adjustment_factor
     
@@ -242,66 +249,144 @@ class RansomwareDetector:
             self.logger.error(f"Error collecting metrics: {str(e)}")
             raise
         
-    
     def detect(self) -> DetectionResult:
-        """Melakukan deteksi anomali dengan pengecekan I/O rate per detik"""
-        if not self.analyzer.is_trained:
-            raise ValueError("Detector belum dilatih!")
-        
         try:
             current_metrics = self._collect_all_metrics()
-            
-            # I/O rates dalam MB/s
             write_rate = current_metrics['system'].disk_write_rate
-            read_rate = current_metrics['system'].disk_read_rate
             
-            # Cek I/O rate
-            io_anomaly = False
-            io_details = {}
+            # Hitung z-score untuk write rate
+            z_score = (write_rate - self.baseline_mean) / self.baseline_std if self.baseline_std > 0 else 0
             
-            # Cek write rate dengan threshold
-            if write_rate > SystemThresholds.DISK_WRITE_RATE_THRESHOLD:
-                SystemThresholds.high_io_counter += 1
-                if SystemThresholds.high_io_counter >= SystemThresholds.SUSTAINED_IO_DURATION:
-                    io_anomaly = True
-                    io_details['high_write_rate'] = {
-                        'current': write_rate,
-                        'threshold': SystemThresholds.DISK_WRITE_RATE_THRESHOLD,
-                        'duration': SystemThresholds.high_io_counter
-                    }
-            else:
-                SystemThresholds.high_io_counter = 0
+            # Debug print
+            print(f"\nDEBUG - Detection Metrics:")
+            print(f"Current Write Rate: {write_rate:.2f} MB/s")
+            print(f"Baseline Mean: {self.baseline_mean:.2f} MB/s")
+            print(f"Baseline Std: {self.baseline_std:.2f} MB/s")
+            print(f"Z-Score: {z_score:.2f}")
+
+            # Deteksi anomali berdasarkan threshold atau z-score
+            is_anomaly = (write_rate > SystemThresholds.DISK_WRITE_RATE_THRESHOLD or 
+                        abs(z_score) > SystemThresholds.ZSCORE_THRESHOLD)
             
-            # Analisis model
-            feature_vector = self._create_feature_vector(current_metrics)
-            analysis_result = self.analyzer.analyze(feature_vector)
+            # Hitung anomaly score yang lebih representatif
+            # Semakin tinggi write_rate dibanding threshold, semakin tinggi score
+            threshold_score = write_rate / SystemThresholds.DISK_WRITE_RATE_THRESHOLD if SystemThresholds.DISK_WRITE_RATE_THRESHOLD > 0 else 0
+            zscore_score = abs(z_score) / SystemThresholds.ZSCORE_THRESHOLD if SystemThresholds.ZSCORE_THRESHOLD > 0 else 0
             
-            # Set is_anomaly berdasarkan IO dan anomaly score
-            is_anomaly = io_anomaly or analysis_result['anomaly_score'] < -0.7  # Perbaikan di sini
+            # Ambil nilai maksimum dari kedua score
+            normalized_score = max(threshold_score, zscore_score)
             
-            # Update details
-            analysis_result['io_analysis'] = {
-                'write_rate': write_rate,
-                'read_rate': read_rate,
-                'io_anomaly': io_anomaly,
-                'io_details': io_details
+            # Debug print
+            print(f"DEBUG - Scores:")
+            print(f"Threshold Score: {threshold_score:.2f}")
+            print(f"Z-Score Score: {zscore_score:.2f}")
+            print(f"Final Score: {normalized_score:.2f}")
+
+            analysis_result = {
+                'is_anomaly': is_anomaly,
+                'anomaly_score': normalized_score,
+                'details': {
+                    'write_rate': write_rate,
+                    'baseline_mean': self.baseline_mean,
+                    'baseline_std': self.baseline_std,
+                    'z_score': z_score,
+                    'threshold_score': threshold_score,
+                    'zscore_score': zscore_score
+                }
             }
-            
-            # Buat objek DetectionResult
+
             return DetectionResult(
                 is_anomaly=is_anomaly,
-                score=analysis_result['anomaly_score'],  # Pastikan konsisten dengan key
+                score=normalized_score,
                 metrics=current_metrics['system'],
                 file_activities=current_metrics.get('files', []),
                 suspicious_processes=current_metrics.get('processes', []),
                 timestamp=datetime.now(),
                 details=analysis_result
             )
-            
+        
         except Exception as e:
             self.logger.error(f"Error during detection: {str(e)}")
-            self.logger.error(f"Analysis result keys: {analysis_result.keys()}")  # Debug
             raise
+    # def detect(self) -> DetectionResult:
+    #     """Melakukan deteksi anomali dengan pengecekan I/O rate per detik"""
+    #     if not self.analyzer.is_trained:
+    #         raise ValueError("Detector belum dilatih!")
+        
+    #     try:
+    #         current_metrics = self._collect_all_metrics()
+            
+    #         # I/O rates dalam MB/s
+    #         write_rate = current_metrics['system'].disk_write_rate
+    #         read_rate = current_metrics['system'].disk_read_rate
+            
+    #         # Debug print
+    #         print(f"\nDEBUG - I/O Rates:")
+    #         print(f"Write Rate: {write_rate:.2f} MB/s (Threshold: {SystemThresholds.DISK_WRITE_RATE_THRESHOLD} MB/s)")
+    #         print(f"High I/O Counter: {SystemThresholds._high_io_counter}")
+            
+    #         # Cek I/O rate
+    #         io_anomaly = False
+    #         io_details = {}
+            
+    #         # Cek write rate dengan threshold
+    #         if write_rate > SystemThresholds.DISK_WRITE_RATE_THRESHOLD:
+    #             print(f"DEBUG - Write rate above threshold!")
+    #             SystemThresholds._high_io_counter += 1
+    #             print(f"DEBUG - Counter increased to: {SystemThresholds._high_io_counter}")
+                
+    #             if SystemThresholds._high_io_counter >= SystemThresholds.SUSTAINED_IO_DURATION:
+    #                 print("DEBUG - Sustained high I/O detected!")
+    #                 io_anomaly = True
+    #                 io_details['high_write_rate'] = {
+    #                     'current': write_rate,
+    #                     'threshold': SystemThresholds.DISK_WRITE_RATE_THRESHOLD,
+    #                     'duration': SystemThresholds._high_io_counter
+    #                 }
+    #         else:
+    #             print("DEBUG - Write rate normal, resetting counter")
+    #             SystemThresholds._high_io_counter = 0
+            
+    #         # Feature vector dan analisis
+    #         feature_vector = self._create_feature_vector(current_metrics)
+    #         analysis_result = self.analyzer.analyze(feature_vector)
+            
+    #         # Debug print
+    #         print(f"DEBUG - Analysis:")
+    #         print(f"IO Anomaly: {io_anomaly}")
+    #         print(f"Analysis Score: {analysis_result['anomaly_score']}")
+            
+    #         # Set is_anomaly berdasarkan IO atau score
+    #         is_anomaly = io_anomaly or analysis_result['anomaly_score'] < SystemThresholds.ANOMALY_SCORE_THRESHOLD
+            
+    #         # Debug print
+    #         print(f"DEBUG - Final Decision:")
+    #         print(f"Is Anomaly: {is_anomaly}")
+
+    #         # Update details
+    #         analysis_result['io_analysis'] = {
+    #             'write_rate': write_rate,
+    #             'read_rate': read_rate,
+    #             'io_anomaly': io_anomaly,
+    #             'io_details': io_details
+    #         }
+            
+    #         result = DetectionResult(
+    #             is_anomaly=is_anomaly,
+    #             score=analysis_result['anomaly_score'],
+    #             metrics=current_metrics['system'],
+    #             file_activities=current_metrics.get('files', []),
+    #             suspicious_processes=current_metrics.get('processes', []),
+    #             timestamp=datetime.now(),
+    #             details=analysis_result
+    #         )
+            
+    #         return result
+            
+    #     except Exception as e:
+    #         self.logger.error(f"Error during detection: {str(e)}")
+    #         raise
+        
     # def detect(self) -> DetectionResult:
     #     """Melakukan deteksi anomali dengan pengecekan I/O rate per detik"""
     #     if not self.analyzer.is_trained:
@@ -421,62 +506,84 @@ class RansomwareDetector:
         #     raise
 
     def train(self, duration_seconds: int = 3600) -> None:
-        """Training detector"""
+        """Training dengan data baseline normal dan menyimpan metrics"""
+        training_data = []
+        self.baseline_scores = []  # Reset baseline scores
+        
+        print(f"\nMengumpulkan baseline normal selama {duration_seconds} detik...")
+        start_time = datetime.now()
+        
         try:
-            training_data = []
-            metrics_collection = []
-            start_time = datetime.now()
-            samples_collected = 0
+            # Buat direktori untuk metrics jika belum ada
+            metrics_dir = os.path.join(self.data_dir, "metrics")
+            os.makedirs(metrics_dir, exist_ok=True)
             
-            print(f"\nCollecting training data for {duration_seconds} seconds...")
+            metrics_file = os.path.join(metrics_dir, f"training_metrics_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json")
+            all_metrics = []  # List untuk menyimpan semua metrics
             
             while (datetime.now() - start_time).total_seconds() < duration_seconds:
-                try:
-                    metrics = self._collect_all_metrics()
-                    metrics_collection.append(metrics) 
-                    feature_vector = self._create_feature_vector(metrics)
-                    training_data.append(feature_vector[0])  # Ambil array 1D
-                    self.storage.save_metrics(metrics)
-                    print(".", end="", flush=True)
-                    samples_collected += 1
-                    if samples_collected % 10 == 0:  # Update setiap 10 sampel
-                        elapsed_time = (datetime.now() - start_time).total_seconds()
-                        progress = (elapsed_time / duration_seconds) * 100
-                        print(f"\rProgress: {progress:.1f}% ({samples_collected} samples)", end="")
-                    
-                    
-                    time.sleep(1)
-                except Exception as e:
-                    self.logger.error(f"Error collecting sample: {str(e)}")
-                    continue
+                current_metrics = self._collect_all_metrics()
+                
+                # Simpan data aktivitas normal untuk baseline
+                write_rate = current_metrics['system'].disk_write_rate
+                read_rate = current_metrics['system'].disk_read_rate
+                
+                # Konversi metrics ke format yang bisa di-serialize ke JSON
+                metrics_to_save = {
+                    'timestamp': datetime.now().isoformat(),
+                    'system': {
+                        'cpu_percent': current_metrics['system'].cpu_percent,
+                        'memory_percent': current_metrics['system'].memory_percent,
+                        'disk_write_rate': write_rate,
+                        'disk_read_rate': read_rate
+                    },
+                    'files': [{'path': f.path, 'operation': f.operation, 
+                            'timestamp': f.timestamp.isoformat()} 
+                            for f in current_metrics.get('files', [])],
+                    'processes': [{'name': p.name, 'pid': p.pid, 
+                                'cpu_percent': p.cpu_percent} 
+                                for p in current_metrics.get('processes', [])]
+                }
+                
+                all_metrics.append(metrics_to_save)
+                
+                # Hanya ambil data normal untuk training
+                if (write_rate < SystemThresholds.DISK_WRITE_RATE_THRESHOLD and 
+                    read_rate < SystemThresholds.DISK_READ_RATE_THRESHOLD):
+                    feature_vector = self._create_feature_vector(current_metrics)
+                    training_data.append(feature_vector[0])
+                    self.baseline_scores.append({
+                        'write_rate': write_rate,
+                        'read_rate': read_rate
+                    })
+                
+                print(".", end="", flush=True)
+                time.sleep(1)
             
-            print("\n\nPengumpulan data selesai.")
-            print(f"Total sampel terkumpul: {samples_collected}")
+            # Simpan semua metrics ke file JSON
+            with open(metrics_file, 'w') as f:
+                json.dump(all_metrics, f, indent=4)
+                
+            print(f"\nMetrics training disimpan di: {metrics_file}")
             
-            # Simpan metrik mentah untuk analisis
-            metrics_path = os.path.join(self.data_dir, "training", f"metrics_{datetime.now().strftime('%Y%m%d_%H%M%S')}.joblib")
-            os.makedirs(os.path.dirname(metrics_path), exist_ok=True)
-            joblib.dump(metrics_collection, metrics_path)
-            print(f"Metrik mentah disimpan di: {metrics_path}")
-            
-            # Convert ke numpy array
+            # Proses training seperti biasa
             training_array = np.array(training_data)
+            write_rates = [score['write_rate'] for score in self.baseline_scores]
+            self.baseline_mean = np.mean(write_rates) if write_rates else 0
+            self.baseline_std = np.std(write_rates) if write_rates else 1
             
-            print(f"\nMemulai training model dengan {len(training_data)} sampel...")
-            print(f"Shape data training: {training_array.shape}")
+            print(f"\nBaseline Statistics:")
+            print(f"Mean Write Rate: {self.baseline_mean:.2f} MB/s")
+            print(f"Std Dev Write Rate: {self.baseline_std:.2f} MB/s")
+            print(f"Total metrics collected: {len(all_metrics)}")
+            
+            # Train model
             self.analyzer.train(training_array)
-            
-            # Save model
-            model_path = os.path.join(self.data_dir, "models", "model_latest.joblib")
-            os.makedirs(os.path.dirname(model_path), exist_ok=True)
-            
-            self.analyzer.save(model_path)
-            
             self.is_trained = True
-            print(f"Training completed! Model saved to {model_path}")
             
         except Exception as e:
-            self.logger.error(f"Error during training: {str(e)}")
+            print(f"\nError during training: {e}")
+            self.logger.error(f"Training error: {str(e)}")
             raise
             
     def get_status(self) -> Dict[str, Any]:
