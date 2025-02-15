@@ -8,7 +8,7 @@ from src.config.system_whitelist import SystemWhitelist
 
 class ProcessCollector(IMetricsCollector):
     def __init__(self):
-        self.cpu_threshold = 80.0  # Naikkan threshold CPU
+        self.cpu_threshold = 80.0  # Naikkan threshold CPUs
         self.memory_threshold = 70.0  # Naikkan threshold Memory
         
     def collect(self) -> List[ProcessInfo]:
